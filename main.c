@@ -5,7 +5,7 @@
 int S;
 int Xn;
 int Yn;
-int m =2;
+int m =1;
 
 double **xx, **y;
 
@@ -101,32 +101,17 @@ void init(int *N, double ***W, double ***J, double **H, double **D) {
 }
 
 
-void a_s(int m, int n, double **W, double *x, double *z) {
-  int i ,j;
-  for(i = 0; i < m; i++) {
-      z[i] = 0;
-      for(j = 0; j < n; j++) {
-          z[i] += W[i][j]*x[j];
-    }
-  }
-
-    //    printf("%.2f ", max);
-    //printf("\n");
-  for(i = 0; i < m; i++) {
-      z[i] = 1/(1.0 + exp(-1.0*z[i]));
-
-  }
-
-}
-
-void a(int m, int n, double **W, double *x, double *z) {
+void active(int rows, int cols, double **W, double *x, double *z) {
 
     int i, j;
     double tmp = 0;
     double max = 0;
-    for(i = 0; i < m; i++) {
+
+    // z = wx
+    for(i = 0; i < rows; i++) {
+
         z[i] = 0;
-        for(j = 0; j < n; j++) {
+        for(j = 0; j < cols; j++) {
             z[i] += W[i][j]*x[j];
         }
 
@@ -134,53 +119,47 @@ void a(int m, int n, double **W, double *x, double *z) {
             max = z[i];
     }
 
-    //    printf("%.2f ", max);
-    //printf("\n");
-    for(i = 0; i < m; i++) {
+    // z = e^wx
+    for(i = 0; i < rows; i++) {
         z[i] = exp(z[i] - max);
         tmp += z[i];
     }
-    for(i = 0; i < m; i++)  {
+
+    // z = e^wx/sum(e^wx)
+    for(i = 0; i < rows; i++)  {
         z[i] /= tmp;
-        //printf("%.2f ", y[i]);
     }
-    //printf("\n");
 }
 
-void f(int *N, double ***W, double **H) {
+void forward(int *N, double ***W, double **H) {
 
+    //forward h[l+1] = Wh[l]
     for(int l = 0; l < m; l++) {
-        if(l==(m-1))
-          a(N[l+1], N[l], W[l], H[l], H[l+1]);
-        else
-          a_s(N[l+1], N[l], W[l], H[l], H[l+1]);
-         
+        active(N[l+1], N[l], W[l], H[l], H[l+1]);
     }
 }
 
-double c(int *N, double **H, int ss) {
-    int i;
+double cost(int *N, double **H, int ss) {
 
     double tmp = 0;
-    double tmp1 = 0;
-    for(i = 0; i < N[m]; i++) {
+    
+    //C(w) = -(1/S)*sum(y*log(h) + (1-y)*log(1-h))
+    for(int i = 0; i < N[m]; i++) {
         tmp -= y[i][ss]*log(H[m][i]) + (1 - y[i][ss])*log(1 - H[m][i]);
-        //printf("%g ", tmp1);
-        //printf("%g ", y[i][0]);
-        //printf("%g ", H[m][i]);
-        //printf("\n");
     }
+
+    tmp *=(1/(double)S);
     return tmp;
 }
 
-void b(int *N, double ***W, double ***J, double **H, double **D, int ss) {
+void backprop(int *N, double ***W, double ***J, double **H, double **D, int ss) {
 
     int i, j, k, l;
     for(l = m-1; l >= 0; l--) {
         for(i = 0; i < N[l+1]; i++) {
             if(l == (m-1)) {
                 //D[l][i] = -(y[i][ss]*(1 - H[l+1][i]) - (1 - y[i][ss])*H[l+1][i]);
-                D[l][i] = -(1/(double)S)*(y[i][ss] - H[l+1][i]);
+                D[l][i] = (H[l+1][i] - y[i][ss]);
             }
             else {
                 D[l][i] = 0;
@@ -189,8 +168,7 @@ void b(int *N, double ***W, double ***J, double **H, double **D, int ss) {
             }
 
             for(j = 0; j < N[l]; j++) {
-                //J[l][i][j] += D[l][i]*H[l][j];
-                W[l][i][j] -= 1*D[l][i]*H[l][j];
+                J[l][i][j] = D[l][i]*H[l][j];
             }
         }
     }
@@ -199,8 +177,6 @@ void b(int *N, double ***W, double ***J, double **H, double **D, int ss) {
 
 
 int main(void) {
-
-    //double **x, **y;
 
 
     int i, j, k,l;
@@ -247,12 +223,12 @@ int main(void) {
                 J[l][i][j] = 0.0;
             }
 
-    int iter, iter_max = 1000;
+    int iter, iter_max = 100;
     double ce = 0;
     int ss = 0;
-    S = 2;
+    S = 200;
     int s, p,q;
-    double alpha = 1;
+    double alpha = 1.0;
     printf("S=%g\n", (1/(double)S));
 
 
@@ -260,35 +236,27 @@ int main(void) {
     for(iter = 0; iter < iter_max; iter++) {
         ce = 0;
         for(i = 0; i < S; i++) {
-
             for(j = 0; j < N[0]; j++)
                 H[0][j] = xx[j][i];   
 
-
-            f(N, W, H);
-            ce += (1/(double)S)*c(N, H, i);
-            b(N, W, J, H, D, i);
+            forward(N, W, H);
+            ce += cost(N, H, i);
+            backprop(N, W, J, H, D, i);
+            for(l = 0; l < m; l++) 
+                for(p = 0; p < N[l+1]; p++) 
+                    for(q = 0; q < N[l]; q++) {
+                        W[l][p][q] -= (1/(double)S)*alpha*J[l][p][q]; 
+                   }
 
         }
-  //  printf("iter: \n", iter); 
-  //  for(p = 0; p < N[2]; p++) {
-  //    for(q = 0; q < N[1]; q++) {
-   //     printf("%.1f ", W[1][p][q]);
-   //   }
-   //   printf("\n");
-   // }
-          //  for(l = 0; l < m; l++) 
-          //      for(p = 0; p < N[l+1]; p++) 
-          //          for(q = 0; q < N[l]; q++) {
-          //              W[l][p][q] -= (1/(double)S)*alpha*J[l][p][q]; 
-          //             J[l][p][q] = 0; 
-          //         }
-        if(iter % 1000 ==0)
+        if(iter % 1 ==0)
             printf("ce = %g\n", ce);
         if(ce < 1.0e-1)
             break;
 
     }
+
+
 
 
     double max;
@@ -299,12 +267,7 @@ int main(void) {
         for(i = 0; i < N[0]; i++)
             H[0][i] = xx[i][s];   
 
-        f(N, W, H);
-//    printf("\n");
-//    printf("\n");
-//    for(i = 0; i < N[1]; i++) {
-//      printf("%g", H[1][i]);
-//    }
+        forward(N, W, H);
         max = 0;
         for(i = 0; i < N[m]; i++) { 
             if(H[m][i] > max) {
