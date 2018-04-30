@@ -5,7 +5,7 @@
 int S;
 int Xn;
 int Yn;
-int m =1;
+int m =2;
 
 double **xx, **y;
 
@@ -101,7 +101,7 @@ void init(int *N, double ***W, double ***J, double **H, double **D) {
 }
 
 
-void active(int rows, int cols, double **W, double *x, double *z) {
+void sigmoid(int rows, int cols, double **W, double *x, double *z) {
 
     int i, j;
     double tmp = 0;
@@ -110,7 +110,25 @@ void active(int rows, int cols, double **W, double *x, double *z) {
     // z = wx
     for(i = 0; i < rows; i++) {
 
-        z[i] = 0;
+        z[i] = W[i][cols];
+        for(j = 0; j < cols; j++) {
+            z[i] += W[i][j]*x[j];
+        }
+        z[i] = 1/(1+exp(-1.0*z[i]));
+    }
+
+}
+
+void softmax(int rows, int cols, double **W, double *x, double *z) {
+
+    int i, j;
+    double tmp = 0;
+    double max = 0;
+
+    // z = wx
+    for(i = 0; i < rows; i++) {
+
+        z[i] = W[i][cols];
         for(j = 0; j < cols; j++) {
             z[i] += W[i][j]*x[j];
         }
@@ -135,7 +153,11 @@ void forward(int *N, double ***W, double **H) {
 
     //forward h[l+1] = Wh[l]
     for(int l = 0; l < m; l++) {
-        active(N[l+1], N[l], W[l], H[l], H[l+1]);
+        if(l == (m-1))
+            softmax(N[l+1], N[l], W[l], H[l], H[l+1]);
+        else
+            sigmoid(N[l+1], N[l], W[l], H[l], H[l+1]);
+            
     }
 }
 
@@ -166,7 +188,7 @@ void backprop(int *N, double ***W, double ***J, double **H, double **D, int ss) 
                 for(k = 0; k < N[l+2]; k++) 
                     D[l][i] += D[l+1][k]*W[l+1][k][i]*(1 - H[l+1][i])*H[l+1][i];
             }
-
+            J[l][i][N[l]] = D[l][i];
             for(j = 0; j < N[l]; j++) {
                 J[l][i][j] = D[l][i]*H[l][j];
             }
@@ -190,7 +212,7 @@ int main(void) {
     //allocate
     N = (int*)malloc((m+1)*sizeof(int));
     for(i = 1; i < m; i++)
-      N[i] = 10;
+      N[i] = 800;
     N[0] = Xn;
     N[m] = Yn;
 
@@ -204,8 +226,8 @@ int main(void) {
 
     for(i = 0; i < m; i++) {
         for(j = 0; j < N[i+1]; j++) {
-            W[i][j] = (double*)malloc(N[i]*sizeof(double));
-            J[i][j] = (double*)malloc(N[i]*sizeof(double));
+            W[i][j] = (double*)malloc((N[i]+1)*sizeof(double));
+            J[i][j] = (double*)malloc((N[i]+1)*sizeof(double));
         }
     }
 
@@ -218,15 +240,15 @@ int main(void) {
    
     for(l = 0; l < m; l++) 
         for(i = 0; i < N[l+1]; i++) 
-            for(j = 0; j < N[l]; j++) {
-                W[l][i][j] = 1.0; 
+            for(j = 0; j < (N[l]+1); j++) {
+                W[l][i][j] = (double)rand()/(RAND_MAX+1) + 0.5; 
                 J[l][i][j] = 0.0;
             }
 
-    int iter, iter_max = 100;
+    int iter, iter_max = 1000;
     double ce = 0;
     int ss = 0;
-    S = 200;
+    S = 2000;
     int s, p,q;
     double alpha = 1.0;
     printf("S=%g\n", (1/(double)S));
@@ -244,7 +266,7 @@ int main(void) {
             backprop(N, W, J, H, D, i);
             for(l = 0; l < m; l++) 
                 for(p = 0; p < N[l+1]; p++) 
-                    for(q = 0; q < N[l]; q++) {
+                    for(q = 0; q < (N[l]+1); q++) {
                         W[l][p][q] -= (1/(double)S)*alpha*J[l][p][q]; 
                    }
 
